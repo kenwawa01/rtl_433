@@ -54,11 +54,8 @@ static int geevon_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     // invert all the bits
     bitbuffer_invert(bitbuffer);
 
-    // in lieu of knowing the checksum algorithm, simply find the most common row
-    int r = bitbuffer_find_repeated_row(bitbuffer, bitbuffer->num_rows > 5 ? 5 : bitbuffer->num_rows, 64);
-    if (r < 0) {
-        r = bitbuffer_find_repeated_row(bitbuffer, 2, 64); // 65
-    }
+    // find the most common row, nominal we expect 5 packets
+    int r = bitbuffer_find_repeated_prefix(bitbuffer, bitbuffer->num_rows > 5 ? 5 : 3, 72);
     if (r < 0) {
         return DECODE_ABORT_LENGTH;
     }
@@ -67,7 +64,7 @@ static int geevon_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     uint8_t *b = bitbuffer->bb[r];
 
     // Check if the packet has the correct number of bits
-    if (bitbuffer->bits_per_row[r] != 73){
+    if (bitbuffer->bits_per_row[r] != 73) {
         return DECODE_ABORT_LENGTH;
     }
 
@@ -83,19 +80,18 @@ static int geevon_callback(r_device *decoder, bitbuffer_t *bitbuffer)
     }
 
     // Extract the data from the packet
-    int battery_low = (b[1] & 0x80) ? 0 : 1;    // battery good: 1; bad: 0
-    int channel     = ((b[1] & 0x30) >> 4) + 1; // channel: 1, 2, 3
-    int temp_raw    = (b[2] << 4) | (b[3] >> 4);
-    float temp_c    = (temp_raw - 500) * 0.1f; // temperature is ((degrees c + 500) * 10)
-    int humidity    = b[4];
-    // int checksum    = b[8];
+    int battery_ok = (b[1] >> 7);              // battery good: 1; low: 0
+    int channel    = ((b[1] & 0x30) >> 4) + 1; // channel: 1, 2, 3
+    int temp_raw   = (b[2] << 4) | (b[3] >> 4);
+    float temp_c   = (temp_raw - 500) * 0.1f; // temperature is ((degrees c + 500) * 10)
+    int humidity   = b[4];
 
     // Store the decoded data
     /* clang-format off */
     data_t *data = data_make(
             "model",            "",             DATA_STRING, "Geevon-TX163",
             "id",               "",             DATA_INT,    b[0],
-            "battery_ok",       "Battery",      DATA_INT,    !battery_low,
+            "battery_ok",       "Battery",      DATA_INT,    battery_ok,
             "channel",          "Channel",      DATA_INT,    channel,
             "temperature_C",    "Temperature",  DATA_FORMAT, "%.1f C", DATA_DOUBLE, temp_c,
             "humidity",         "Humidity",     DATA_FORMAT, "%u %%", DATA_INT,     humidity,
